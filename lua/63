@@ -1,0 +1,906 @@
+
+s19_200_autozbb_tishi = 0
+s18_stop_task =0
+local s18_200_autobuy=0
+local s18_200_taskid_dangqian =0
+local s18_200_buy_type = 0
+local s18_200_buy_cishu = 0
+local yaopinIDtbl={
+	['Skip'] = 0, 
+	['query_info'] = '', 
+	['Tag'] = 1501, 
+	['limit'] = 8, 
+	['query_display'] = false, 
+	['order'] = true, 
+}
+
+local s18_item_tbls={}
+local s18_item_jinengshu_tbls = {}
+
+local s18_item_buyid=0
+
+local  MultiType ={}
+local s19_200_autozbb=1
+local BookName =""
+local MultiTypeId = 0
+local s18_200_buy_suoding = 0
+local s18_200_karenwujici = 0
+
+
+function s18_200_hook_c_trace_refresh(...) --服务器发来新的任务追踪ID
+	
+local packmsg = (...)
+local msg=g17module.msgpack_unpack(packmsg.args)
+
+HOOK.doHook(HOOK.HookType.AddTaskTrace, packmsg.id, msg)
+s18_task_trace_tbl[packmsg.id] = msg["Status"] --增加ID状态到TBL
+--db_--print(packmsg.id,msg,s18_task_trace_tbl)
+end
+
+function s18_200_hook_c_trace_delete(taskid) --服务器通知删除追踪ID
+	--print("---------------deltask----------")
+	--db_--print(taskid)
+	HOOK.doHook(HOOK.HookType.DelTaskTrace, taskid)
+	s18_200_deleteTaskId(taskid)
+	if taskid == 2100061 then --200环任务结束了
+		for_caller.s_query_act() --查询活动列表 看看能不能刷第二次
+	end
+end
+
+
+
+function s18_200_TaskList_huoli_2cjc (tasklist,arg1,arg2)
+	if type(tasklist) == "table" then
+		for k, v in pairs(tasklist) do
+			local taskid, Status = k, v["Status"]
+			if  taskid >= 2100010 and taskid <= 2100151 then  --200环ID范围 (正常范围)
+				return
+			end
+		end
+	end
+
+				s18_200rehook()
+				COMMON_CSB.ReleaseAllFirstNode()
+				--print("体力不足")
+end
+
+
+
+
+
+
+
+function s18_200_hook_c_act_info(LeftExpPoint,TotalExpPoint,ActInfo) --查询日常返回
+	HOOK.doHook(HOOK.HookType.GetActivityInfo,LeftExpPoint,TotalExpPoint,ActInfo)
+	--db_--print(LeftExpPoint,TotalExpPoint,ActInfo)
+
+	
+	for k, v in pairs(ActInfo) do
+		if v["Id"] == 100019 or v["Id"] == 1000191 then --200环ID且状态=1 100019道具
+		if v["State"] == 1 then
+		
+		
+		
+			if   v["Id"] == 1000191 then
+			 if HERO_DATA.getUserAttr("Tili") < 300 then --没体力了
+				--没活力了 让他刷新下 任务追踪列表 判断里面是不是有200 没有在结束 
+				RPC.Request(s18_200_TaskList_huoli_2cjc,for_caller.s_query_cur_task) --获取任务追踪列表
+				return
+			 end
+			end
+
+			
+			
+			for_caller.s_act_click(v["Id"]) --点击ID让他进入任务追踪
+			s18_200_karenwujici = 0
+			return
+		end	
+		end
+		
+	end
+			s18_200rehook()
+			--print("未检测到200环任务或已完成200")
+end
+
+
+function s18_200_question(SId, Title, Question, Options, Cnt, Timeout, Answer, Confirm) --200答题返回
+--COMMON_CSB.CreateNode(nil, "COMMON_ANSWER_QUESTION", SId, Title, Question, Options, Cnt, Timeout, Answer, Confirm)
+RPC.Response(SId,Cnt)
+
+end
+
+
+function s18_200_hk_runtoclick_npc(x,y,TaskNpcId,NpcScene) --瞬移返回
+	------print(x,y,TaskNpcId,NpcScene)
+	GameManager:getHeroObj():setPosition(x,y)
+	for_caller.s_hero_move(NpcScene,x,y)
+	for_caller.s_hero_sync_pos(NpcScene,x,y)
+	for_caller.s_char_look(TaskNpcId)
+end
+
+	
+
+local onItemlist = function(arg1, arg2) --药
+	if arg2 ~= 0  then
+		for k,v in pairs(arg1) do
+			----print(v.Price)
+			table.insert(s18_item_tbls,v)
+		end
+	end
+		
+end
+
+local onItemlist2 = function(arg1, arg2) --技能书
+	if arg2 ~= 0  then
+		for k,v in pairs(arg1) do
+			----print(v.Price)
+			table.insert(s18_item_jinengshu_tbls,v)
+		end
+	end
+		
+end
+
+
+
+
+local  function s18_200_buy_item (tag)
+	
+	
+	TellMe("正在查询中")
+	local TagOnSellCache = COMMERCE_DATA.TagOnSellCache
+		TagOnSellCache:Clear()
+		if s18_item_buyid == 0 then
+			TagOnSellCache:GetData(1501, 1, onItemlist)
+			s18_item_buyid = s18_item_buyid + 1
+			elseif s18_item_buyid == 1 then
+			s18_200_buy_suoding =0
+			TagOnSellCache:GetData(1502, 1, onItemlist)
+			s18_item_buyid = s18_item_buyid + 1
+			elseif s18_item_buyid == 2 then
+			TagOnSellCache:GetData(1501, 1, onItemlist)
+		
+		end
+		
+end
+
+
+
+local  function s18_200_buy_item2 ()
+	
+	
+	
+
+	s18_TBL_SORT(s18_item_tbls)
+	--db_--print(s18_item_tbls)
+	
+	if  table.getn(s18_item_tbls) > 0 then
+		RPC.Request(function (a,b)
+		--db_--print("购买返回",a,b)
+		if s18_200_buy_type == 1  then  run200T() end
+		
+
+		
+		end,for_caller.s_trade_buy, s18_item_tbls[1].SellId, 1, s18_item_tbls[1].Price, s18_item_tbls[1].Category, s18_item_tbls[1].Type)
+	
+	end
+	
+	--RPC.Request(function (a,b)
+		--db_--print("购买返回",a,b)
+		--if s18_200_buy_type == 1  then  run200T() end
+		
+
+		
+	--end,for_caller.s_trade_buy, s18_item_tbls[1].SellId, 1, s18_item_tbls[1].Price, s18_item_tbls[1].Category, s18_item_tbls[1].Type)
+	s18_200_buy_cishu=s18_200_buy_cishu+1
+	LUA_TIMER.callOnce(function ()
+		if s18_200_buy_cishu >=99 then
+			--print("购买次数超标 辅助停止")
+			LUA_TIMER.removeCallOut(s18_200_timer_zhuxianchengid)--销毁定时器
+			s18_200rehook()
+			return
+		end
+		run200T()
+		--购买后启动个10秒的定时器 这个定时器重新启动扫描任务程序
+		--如果购买成功了 他自然去交任务了 如果失败了 那么他会继续购买下一次 对吧 
+	end, 10.1)
+	
+	
+end
+
+function s18_TBL_SORT(tbl)
+table.sort(tbl, function(a, b)
+     return a.Price < b.Price
+end)
+end
+
+
+local  function s18_200_buy_shuaxinshu ()
+	
+	for k,v in pairs(MultiType) do
+		--print(k,v)
+		if v ~= 2333323 then
+			BookName = (INFO_ITEM.GetItemStaticInfo(v).Name)
+			MultiType[k] = 2333323
+			break
+			
+		end
+	end
+	--db_--print(MultiType)
+	local TagOnSellCache = COMMERCE_DATA.TagOnSellCache
+	TellMe("正在查询->"..BookName)
+	local item = COMMERCE_DATA.GetNameMap()[BookName]
+	
+	item = item[1]
+	TagOnSellCache:Clear()
+	TagOnSellCache:GetData(item.Tag, 1, onItemlist2)
+	s18_200_buy_suoding =0
+end
+
+local function s18_200_buy_shuaxinshu3()
+	--print("MultiTypeId->",MultiTypeId)
+	
+	if  s18_200_taskid_dangqian < 2100030 or s18_200_taskid_dangqian > 2100036 or s18_200_taskid_dangqian == 2100031 then return end
+	
+	if  s18_task_trace_tbl[s18_200_taskid_dangqian] == 2 then run200T() return end --完成状态
+	RPC.Request(
+	function (a,b)
+	
+	end,for_caller.s_item_buy, "zahuo",MultiTypeId, 1)
+	run200T()
+	
+end
+
+
+
+
+local function s18_200_buy_shuaxinshu2()
+	s18_TBL_SORT(s18_item_jinengshu_tbls)
+	--db_--print(s18_item_jinengshu_tbls)
+	if  _G.next( s18_item_jinengshu_tbls ) == nil then
+		LUA_TIMER.callOnce(s18_200_buy_shuaxinshu3, 10)
+		return
+	end
+	
+		RPC.Request(
+			function (a,b)
+		--db_--print("购买返回",a,b)
+			if a == true  then  
+			run200T() 
+			else
+				--print("去书店")
+				LUA_TIMER.callOnce(s18_200_buy_shuaxinshu3, 10)
+			end
+			--s18_item_jinengshu_tbls[1999999].SellId
+			--s18_item_jinengshu_tbls[1].SellId
+	end,for_caller.s_trade_buy, s18_item_jinengshu_tbls[1].SellId, 1, s18_item_jinengshu_tbls[1].Price, s18_item_jinengshu_tbls[1].Category, s18_item_jinengshu_tbls[1].Type)
+end
+
+
+function s18_200_RING200_SUMMON()
+	if  COMMON_CSB.GetNode("RING200_SUMMON") ~= nil then
+		 COMMON_CSB.GetNode("RING200_SUMMON"):getChild("ButtonConfirm").onTouchEnd()
+		 COMMON_CSB.ReleaseAllFirstNode()
+	end
+	
+end
+
+
+s18_200_maiyaosuo = 0
+function s18_200_mys()
+	s18_200_maiyaosuo = 0
+end
+
+
+
+
+function s18_200_c_confirm_panel(id,str,...)
+
+if string.match(tostring(str),"购买后#R禁止交易#n") then
+	
+for_caller.s_response(id,g17module.msgpack_pack(...))
+return
+end
+
+bak_for_maker_c_confirm_panel(id,str,...)
+
+
+end
+
+
+
+function s18_200_c_open_sell(a1,a2,a3,a4,a5,a6,a7,...)
+		if COMMON_CSB.GetNode("SELL_PANEL") ~= nil  then
+			return	
+		end
+bak_for_maker_c_open_sell(a1,a2,a3,a4,a5,a6,a7,...)
+
+
+--print("判断A7")
+if _G.next( a7 ) == nil then
+  return
+end
+
+--print("判断A7结束",s18_task_trace_tbl[s18_200_taskid_dangqian] ,s18_200_buy_suoding,COMMON_CSB.GetNode("SELL_PANEL"))
+
+if  s18_task_trace_tbl[s18_200_taskid_dangqian] == 1  and s18_200_buy_suoding == 0 then
+--[[		if COMMON_CSB.GetNode("SELL_PANEL") ~= nil  then
+			return
+			
+		end--]]
+		
+		if  s18_200_maiyaosuo == 1 then
+			return
+			
+		end
+		
+		
+		
+
+		if s18_200_buy_suoding == 0 then
+			s18_200_buy_suoding =1
+		else
+			s18_200_buy_suoding =0
+		end
+	
+	------------------------买药买技能书---------------------
+		LUA_TIMER.removeCallOut(s18_200_timer_zhuxianchengid)--销毁定时器 不让主线程点任务了 但不还原函数
+		s18_200_maiyaosuo =1
+		LUA_TIMER.callOnce(s18_200_mys,3)
+		
+		--print("开始买药买书")
+		TellMe("正在刷新需求物品清单,请不要乱点东西.")
+		--print("----------",s18_200_buy_cishu)
+
+		
+		if  s18_200_taskid_dangqian == 2100031 then s18_200_buy_type=1 end --药
+		
+		if  s18_200_taskid_dangqian == 2100041 or s18_200_taskid_dangqian == 2100040 then return end --宠物
+		
+		if  s18_200_taskid_dangqian >= 2100030 and s18_200_taskid_dangqian <= 2100036 and s18_200_taskid_dangqian ~= 2100031 then 
+			s18_200_buy_type=2 
+			local BookName =""
+			s18_item_jinengshu_tbls = {}
+			MultiType = {}
+			
+			for k,v in pairs(a7) do
+
+
+
+			table.insert(MultiType,a7 [k].key)
+			end
+			
+			
+			MultiTypeId = MultiType[1]
+				local t=0
+				for k,v in pairs(MultiType) do
+					
+					LUA_TIMER.callOnce(s18_200_buy_shuaxinshu, k*2)
+					t=k
+				end
+				--print("========循环后的t",t)
+			LUA_TIMER.callOnce(s18_200_buy_shuaxinshu2, t*2)
+			s18_200_buy_suoding =0
+			COMMON_CSB.ReleaseAllFirstNode()
+			return
+		end --书
+		COMMON_CSB.ReleaseAllFirstNode()
+		s18_item_buyid =0
+		s18_item_tbls={}
+		LUA_TIMER.callOnce(s18_200_buy_item, 0.1)
+		LUA_TIMER.callOnce(s18_200_buy_item, 2.1)
+		LUA_TIMER.callOnce(s18_200_buy_item, 4.1)
+		LUA_TIMER.callOnce(s18_200_buy_item2, 6.1)
+		
+		--s18_200rehook()
+		s18_200_buy_suoding =0
+		--COMMON_CSB.ReleaseAllFirstNode()
+		return
+	end
+	
+
+
+
+
+
+end
+
+ function s18_200runhook()	--初始化hook接口
+		
+	if  bak_for_maker_c_trace_refresh == nil then
+		bak_for_maker_c_trace_refresh= for_maker.c_trace_refresh  --服务器返回追踪id
+		bak_for_maker_c_trace_delete = for_maker.c_trace_delete	 --服务器返回要删除的追踪id
+		bak_for_maker_c_act_info	 = for_maker.c_act_info --查询活动返回
+		bak_for_maker_c_question	 = for_maker.c_question --200答题
+		--bak_for_maker_c_npc_menu	 = for_maker.c_npc_menu --对话框 和a23老版本名字冲突
+		bak_for_maker_c_runtoclick_npc=for_maker.c_runtoclick_npc --瞬移
+		bak_for_maker_c_open_ui 	 = for_maker.c_open_ui
+		bak_for_maker_c_confirm_panel= for_maker.c_confirm_panel
+		bak_for_maker_c_open_sell	 = for_maker.c_open_sell
+	end
+	s18_task_trace_tbl={} --任务ID TBL
+	for_maker.c_trace_refresh= s18_200_hook_c_trace_refresh
+	for_maker.c_trace_delete = s18_200_hook_c_trace_delete
+	for_maker.c_act_info 	 = s18_200_hook_c_act_info 
+	for_maker.c_question	 = s18_200_question
+	for_maker.c_runtoclick_npc=s18_200_hk_runtoclick_npc
+	for_maker.c_open_ui		 = s18_200_c_open_ui
+	for_maker.c_confirm_panel= s18_200_c_confirm_panel
+	for_maker.c_open_sell    = s18_200_c_open_sell
+end
+
+function s18_200rehook()	--还原程序
+		LUA_TIMER.removeCallOut(s18_200_timer_zhuxianchengid)--销毁定时器
+		for_maker.c_trace_refresh= bak_for_maker_c_trace_refresh
+		for_maker.c_trace_delete = bak_for_maker_c_trace_delete
+		for_maker.c_act_info 	 = bak_for_maker_c_act_info 
+		for_maker.c_question	 = bak_for_maker_c_question
+		for_maker.c_runtoclick_npc=bak_for_maker_c_runtoclick_npc
+		for_maker.c_open_ui	 	 = bak_for_maker_c_open_ui
+		for_maker.c_confirm_panel= bak_for_maker_c_confirm_panel
+		for_maker.c_open_sell    = bak_for_maker_c_open_sell
+		LUA_TIMER.callOnce(s18_200_tongzhifuzhu, 0.5)	--一次性定时器
+end
+
+
+function s18_200_tongzhifuzhu()		--通知辅助停止
+	zxerbaihuan=0
+				if s18_stop_task == 1 then
+				s18_sock_sendx("rwtz_")--接到停止任务命令 告诉exe已经做了
+			else
+				s18_sock_sendx("rwjs_zx_0") --脚本正常执行完毕
+			end
+	TellMe("结束")
+
+end
+
+function s18_200_deleteTaskId(taskid)	--删除s18_task_trace_tbl任务ID
+	
+		
+	local newT = {}
+	for i ,v in pairs(s18_task_trace_tbl) do
+		
+		if i ~= taskid then
+			
+			newT[i]=v
+		end
+	end
+	s18_task_trace_tbl = newT
+
+
+end
+
+
+
+function s18_200_c_open_ui(tag,msgpack) --打开UI返回
+	
+	
+	if  tag=="RING200_ITEM"  then--上交药和书
+		bak_for_maker_c_open_ui(tag,msgpack)
+		COMMON_CSB.GetNode("RING200_ITEM"):getChild("ButtonConfirm").onTouchEnd()
+		COMMON_CSB.ReleaseAllFirstNode()
+		return
+	end
+	
+	if  tag=="RING200_SUMMON"  then--上交宠物
+	--print("上交宠物")
+		
+		
+		if COMMON_CSB.GetNode("RING200_SUMMON") == nil then
+			
+			bak_for_maker_c_open_ui(tag,msgpack)
+			return
+		end
+		
+		LUA_TIMER.callOnce(s18_200_RING200_SUMMON,2)
+		return
+	
+	end
+	
+	local unmsgpack = g17module.msgpack_unpack(msgpack)
+	--print("---------------------",tag)
+	--db_print(unmsgpack)
+	--print(unmsgpack,"--------------------------")
+	if tag == "MALL_BASE"  and  unmsgpack[1] == "MALL_COMMERCE" and   unmsgpack[3].MultiType ~= nil and s18_task_trace_tbl[s18_200_taskid_dangqian] == 1  and s18_200_buy_suoding == 0 then
+		if COMMON_CSB.GetNode("MALL_COMMERCE") ~= nil or s18_200_maiyaosuo == 1 then
+			return
+			
+		end
+
+		if s18_200_buy_suoding == 0 then
+			s18_200_buy_suoding =1
+		else
+			s18_200_buy_suoding =0
+		end
+	
+	------------------------买药买技能书---------------------
+		LUA_TIMER.removeCallOut(s18_200_timer_zhuxianchengid)--销毁定时器 不让主线程点任务了 但不还原函数
+		s18_200_maiyaosuo =1
+		LUA_TIMER.callOnce(s18_200_mys,3)
+		
+		--print("开始买药买书")
+		TellMe("正在刷新需求物品清单,请不要乱点东西.")
+		--print("----------",s18_200_buy_cishu)
+
+		
+		if  s18_200_taskid_dangqian == 2100031 then s18_200_buy_type=1 end --药
+		
+		if  s18_200_taskid_dangqian == 2100041 or s18_200_taskid_dangqian == 2100040 then return end --宠物
+		
+		if  s18_200_taskid_dangqian >= 2100030 and s18_200_taskid_dangqian <= 2100036 and s18_200_taskid_dangqian ~= 2100031 then 
+			s18_200_buy_type=2 
+			local BookName =""
+			s18_item_jinengshu_tbls = {}
+			MultiType =  unmsgpack[3].MultiType
+			MultiTypeId = MultiType[1]
+				local t=0
+				for k,v in pairs(MultiType) do
+					
+					LUA_TIMER.callOnce(s18_200_buy_shuaxinshu, k*2)
+					t=k
+				end
+				--print("========循环后的t",t)
+			LUA_TIMER.callOnce(s18_200_buy_shuaxinshu2, t*2)
+			s18_200_buy_suoding =0
+			COMMON_CSB.ReleaseAllFirstNode()
+			return
+		end --书
+		COMMON_CSB.ReleaseAllFirstNode()
+		s18_item_buyid =0
+		s18_item_tbls={}
+		LUA_TIMER.callOnce(s18_200_buy_item, 0.1)
+		LUA_TIMER.callOnce(s18_200_buy_item, 2.1)
+		LUA_TIMER.callOnce(s18_200_buy_item, 4.1)
+		LUA_TIMER.callOnce(s18_200_buy_item2, 6.1)
+		
+		--s18_200rehook()
+		s18_200_buy_suoding =0
+		--COMMON_CSB.ReleaseAllFirstNode()
+		return
+	end
+
+
+bak_for_maker_c_open_ui(tag,msgpack)
+end
+
+
+
+
+
+
+function s18_200_TaskList_CallBack(tasklist, arg2, arg3) --任务列表的返回 加任务ID到 s18_task_trace_tbl
+	if type(tasklist) == "table" then
+		for k, v in pairs(tasklist) do
+			local taskid, Status = k, v["Status"]
+			s18_task_trace_tbl[taskid]=Status  --相当于直接增加ID和状态到TBL里了
+		end
+	end
+--print("-------------------s18_200_TaskList_CallBack-------------")
+--db_--print(s18_task_trace_tbl)
+end
+
+
+
+
+function s18_200_task_trace_tbl_isempty() --判断任务列表是否为空 空返回false
+
+        return _G.next( s18_task_trace_tbl ) == nil
+
+end
+
+
+
+s18_200runhook() --初始化
+
+
+for_caller.s_query_act() --查询活动列表
+
+SYS_SETTING.SetValueByKey("Ring200SummonAutoBuy",false) --关闭自动购买宝宝
+SYS_SETTING.SaveSetting()
+
+if s18_200_task_trace_tbl_isempty() then --任务列标位空 初始化下
+	RPC.Request(s18_200_TaskList_CallBack,for_caller.s_query_cur_task) --获取任务追踪列表
+
+end
+
+
+
+function s18_200_fangkarenwu()
+	
+	for_caller.s_query_act() --查询活动列表
+	s18_200_karenwujici= s18_200_karenwujici+1
+	if s18_200_karenwujici >= 2 then
+			LUA_TIMER.removeCallOut(s18_200_timer_zhuxianchengid)--销毁定时器
+			s18_200rehook() --没找到200内的任务ID 辅助停止
+			--print("-->卡任务还原")
+	end
+	
+end
+local s18_200_shu_yao_buyjici = 0
+
+
+---------------------------自动宠物函数---------------------------
+
+
+
+local s19_summon_list ={}
+local s19_tmp_summon_list ={}
+local s19_free_summon_suo = 0
+local s19_summon_list_id_tbl ={}
+local s19_free_summon_state = true
+s19_free_summon_timer = 787878
+s19_summon_max=0
+
+
+
+
+
+--s19_summon_list=SUMMON_DATA.CoGetAllSummon()
+
+function s19_free_summon()
+--[[	if s19_free_summon_state == true then
+		  s19_free_summon_state = false	
+		  s19_free_summon_timer = LUA_TIMER.callFre(s19_free_summon_call,2.5)
+		  
+	end--]]
+s19_free_summon_call()
+end
+
+
+function s19_free_summon_call()
+
+	
+	
+	function s19_tmp_summon_list_callback(...)
+		s19_tmp_summon_list = ...
+
+		if _G.next( s19_tmp_summon_list ) == nil then
+			--print("临时bb是空的")
+			
+			--LUA_TIMER.removeCallOut(s19_free_summon_timer)--销毁定时器
+			s19_free_summon_state = true
+			return
+		else
+				if  s18_task_trace_tbl[s18_200_taskid_dangqian] == 2 then 
+					s18_move_stopMove()
+					LUA_TIMER.removeCallOut(s19_200_timer_zbb_zhuxianchengid)--销毁定时器
+					run200T() 
+					return 
+				else
+					for_caller.s_temp_summon_clean()
+				end --完成状态
+			
+			
+		end
+	end
+
+RPC.Request(s19_tmp_summon_list_callback,for_caller.s_get_tmpsummon_list)
+end
+
+
+
+
+
+
+
+
+function s19_chazhaowupin(Framex,Typex)
+local biaozhi = false
+ITEM_DATA.GetAllItems(function(ItemsData)
+	for k,v in pairs(ItemsData) do --遍历tebal数据
+		----print(k,v) --k =ID  V=基本信息
+		local ItemId= k
+		local ItemType = v.Type
+		local Frame = v.Frame
+		local Amount = v.Amount
+		local ItemName =  INFO_ITEM.GetItemName(ItemType)
+		--Frame 1=背包 2=穿戴 5=仓库
+			if Framex == Frame  then
+				if type(Typex) == "number" then
+					if ItemType == Typex then
+						biaozhi =true
+						break
+					end
+				else
+					if ItemName == Typex then
+						biaozhi =true
+						break
+					end		
+				end	
+			end
+	end
+end)
+return biaozhi
+end
+
+
+function s19_200_zbb_maixiang()
+	if s19_chazhaowupin(1,7103)  == false then
+		RPC.Request(function ()
+		end,for_caller.s_item_buy,"zahuo",7103,1)
+	end
+end
+
+function s19_200_gotoMap(summonId)
+	
+	
+	--for_caller.s_summon_catch(summonId)
+	if COMMON_CSB.GetNode("SETTING_PATROL") ~= nil then
+		return true
+	else
+		return false
+	end
+	
+end
+
+
+
+
+
+
+function s19_200_zhuabb_zhuxiancheng()
+	if s18_stop_task == 1 then
+		LUA_TIMER.removeCallOut(s19_200_timer_zbb_zhuxianchengid)--销毁定时器
+		s18_200rehook()
+		
+	end
+	
+	if COMMON_CSB.GetNode("MALL_TASK_SUMMON_COMMERCE_BUY") then
+		COMMON_CSB.GetNode("MALL_TASK_SUMMON_COMMERCE_BUY"):release()
+		COMMON_CSB.GetNode("MALL_TASK_SUMMON_COMMERCE_BASE"):release()
+		COMMON_CSB.GetNode("MALL_TASK_SUMMON_BASE"):release()
+	end
+	
+	
+	
+	if  s18_task_trace_tbl[s18_200_taskid_dangqian] == 2 then 
+		s18_move_stopMove()
+		LUA_TIMER.removeCallOut(s19_200_timer_zbb_zhuxianchengid)--销毁定时器
+		run200T() 
+		return 
+	end --完成状态
+	
+	if s19_200_gotoMap() == true then
+		s18_move_randomWalk()
+		
+	end
+s19_free_summon()
+end
+
+
+
+
+
+
+
+---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+function s18_200_zhuxiancheng() --200环任务主线程处理函数
+	if s18_stop_task == 1 then
+		LUA_TIMER.removeCallOut(s18_200_timer_zhuxianchengid)--销毁定时器
+		s18_200rehook()
+		
+	end
+	
+	if  GameManager:getSceneObj():isInWar()  then return end --在战斗就返回
+	
+	for taskid,v in pairs(s18_task_trace_tbl)do
+		if  taskid >= 2100010 and taskid <= 2100151 then  --200环ID范围 (正常范围)
+		
+					if  taskid >= 2100030 and taskid <= 2100036 then
+								--如果存在购买窗口就不点击任务了
+							if COMMON_CSB.GetNode("SELL_PANEL") ~= nil then
+								s18_200_shu_yao_buyjici=s18_200_shu_yao_buyjici+1
+								if s18_200_shu_yao_buyjici >= 3 then
+									COMMON_CSB.ReleaseAllFirstNode()
+									s18_200_shu_yao_buyjici=0
+									
+									
+								end
+								return
+							end	
+							
+							if COMMON_CSB.GetNode("MALL_COMMERCE") ~= nil then
+								s18_200_shu_yao_buyjici=s18_200_shu_yao_buyjici+1
+								if s18_200_shu_yao_buyjici >= 3 then
+									COMMON_CSB.ReleaseAllFirstNode()
+									s18_200_shu_yao_buyjici=0
+									
+									
+								end
+								return
+							end	
+					end
+					
+					
+					if taskid == 2100041 or taskid == 2100040  then--自动购买宠物
+						if  COMMON_CSB.GetNode("RING200_SUMMON") ~= nil then
+						 COMMON_CSB.GetNode("RING200_SUMMON"):getChild("ButtonConfirm").onTouchEnd()
+						 return
+						end
+					
+					end
+					
+					----------------------上面两层防点击保护
+			 for_caller.s_trace_click(taskid)
+			 s18_200_taskid_dangqian = taskid
+				--print("正常范围",taskid)
+				s18_200_karenwujici =0
+				if taskid < 2100030 or taskid > 2100036 then s18_200_buy_cishu =0 end
+				
+				
+				
+				if taskid == 2100041 or taskid == 2100040  then--自动购买宠物
+
+						
+				
+				
+					if   v == 1 then
+					
+					
+								if s18_200_autobuy >= 2 then
+								LUA_TIMER.removeCallOut(s18_200_timer_zhuxianchengid)--销毁定时器
+									if s19_200_autozbb == 1 then
+										s19_200_zbb_maixiang()
+										COMMON_CSB.GetNode("MALL_TASK_SUMMON_COMMERCE_BUY"):getChild("ButtonGotoHunt").onTouchEnd()
+										--COMMON_CSB.ReleaseAllFirstNode()
+										s19_200_timer_zbb_zhuxianchengid = LUA_TIMER.callFre(s19_200_zhuabb_zhuxiancheng,4.5)
+									else
+										s18_200rehook()
+									--print("-->宝宝还原")
+									end
+								
+								
+								
+
+
+								return
+								end
+
+					
+					s18_200_RING200_SUMMON()
+					
+					for_caller.s_tasksummontrade_autobuy() 
+					s18_200_autobuy=s18_200_autobuy+1
+			    else
+                    s18_200_autobuy=0					
+
+				end
+				
+			    else
+                    s18_200_autobuy=0				
+				end
+				
+				
+			 return
+		end
+		if  taskid >= 21000100 and taskid <= 21001520 then  --200特殊范围
+			 for_caller.s_trace_click(taskid)	
+			 s18_200_taskid_dangqian = taskid
+			 --print("特殊范围",taskid)
+			s18_200_karenwujici = 0
+			 return
+		end
+	
+	end
+s18_200_fangkarenwu()
+end
+
+
+
+
+
+
+function run200T()
+	LUA_TIMER.removeCallOut(s18_200_timer_zhuxianchengid)--销毁定时器
+	s18_200_timer_zhuxianchengid = LUA_TIMER.callFre(s18_200_zhuxiancheng,6.5)
+end
+run200T()
